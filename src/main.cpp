@@ -1,11 +1,12 @@
+#define SOL_ALL_SAFETIES_ON 1
+#define SOL_CHECK_ARGUMENTS 1
+
+#define SOL_LUA_VERSION 505
+
 #include <iostream>
 #include <vector>
-
-extern "C" {
-    #include "lua.h"
-    #include "lualib.h"
-    #include "lauxlib.h"
-}
+#include <sol/sol.hpp>
+#include <cassert>
 
 #include "raylib.h"
 #include "types.hpp"
@@ -14,9 +15,11 @@ Map generate_terrain();
 TextMap load_assets();
 void draw_terrain(Map &mapa, TextMap &texturas);
 
-void load_items(lua_State *L);
-lua_State* get_luastate();
-void close_lua(lua_State *L);
+struct WorldObject {
+    int id;
+    std::string sprite;
+};
+std::vector<WorldObject> read_items_lua();
 
 const int MAX_MAP_WIDTH = 512;
 const int MAX_MAP_HEIGHT = 512;
@@ -32,9 +35,7 @@ int main(void)
     TextMap texturas = load_assets();
     Texture2D *player = &texturas['p'];
 
-    lua_State* L = get_luastate();
-    load_items(L);
-    close_lua(L);
+    std::vector<WorldObject> world_items = read_items_lua();
 
     SetTargetFPS(60);
 
@@ -95,52 +96,26 @@ void draw_terrain(Map &mapa, TextMap &texturas) {
     }
 }
 
-struct WorldObject {
-    int id;
-    std::string sprite;
-};
+std::vector<WorldObject> read_items_lua() {
+    sol::state lua;
+    lua.open_libraries(sol::lib::base);
+    lua.script_file("items.lua");
 
-lua_State* get_luastate() {
-    lua_State *L = luaL_newstate();
-    luaL_openlibs(L);
-    return L;
-}
-
-void close_lua(lua_State *L) {
-        lua_close(L);
-}
-
-void load_items(lua_State *L) {
-
-    luaL_dofile(L, "items.lua");
     std::vector<WorldObject> worlds;
+    sol::table world = lua["world"];
 
-    int length = static_cast<int>(lua_rawlen(L, -1));
+    for (auto& kv: world) {
+        sol::table item = kv.second.as<sol::table>();
 
-    for (int i = 0; i<= length ; ++i) {
-        lua_rawgeti(L, -1, i);
-
-        lua_getglobal(L, "world");
-        if (lua_istable(L,-1)) {
-            WorldObject world;
-
-            lua_getfield(L, -1, "id");
-            world.id = static_cast<int>(lua_tointeger(L, -1));
-            lua_pop(L, 1);
-
-            lua_getfield(L, -1, "sprite");
-            world.sprite = lua_tostring(L, -1);
-            lua_pop(L, 1);
-
-            worlds.push_back(world);
-        }
-
-        lua_pop(L, 1);
-        lua_pop(L, 1);
-
-        for (const auto& obj : worlds) {
-            std::cout << "ID: " << obj.id 
-                << " | Sprite: " << obj.sprite << std::endl;
-        }
+        worlds.push_back({
+            item["id"],
+            item["sprite"]
+        });
     }
+
+    for (const auto& obj: worlds) {
+        std::cout << "\t\tID:" << obj.id << " | Sprite : "  << obj.sprite << "\n";
+    }
+
+    return worlds;
 }
